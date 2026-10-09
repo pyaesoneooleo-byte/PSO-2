@@ -2,3 +2,4 @@ gradio
 openai-whisper
 google-genai
 PyGithub
+numpy<2.0
