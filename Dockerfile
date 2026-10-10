@@ -11,4 +11,4 @@ COPY . .
 EXPOSE 10000
 
 # App ကို စတင် Run ခြင်း
-CMD ["python", "genai_app.py"]
+CMD ["python", "app.py"]
