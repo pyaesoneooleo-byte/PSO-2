@@ -264,4 +264,4 @@ if __name__ == "__main__":
     print("=" * 70)
     print("Starting Pro Meeting Assistant (Midnight Blue Theme)...")
     print("=" * 70)
-    demo.launch(server_name="0.0.0.0", server_port=10000, theme=dark_blue_theme)
+    demo.launch(theme=dark_blue_theme)
