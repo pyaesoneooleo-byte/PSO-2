@@ -1,23 +1,14 @@
-FROM python:3.9-slim
-
-# Install system dependencies including git and ffmpeg
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    git \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+FROM python:3.10-slim
 
 WORKDIR /app
 
 COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Upgrade pip and install requirements without cache to save memory
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+COPY . .
 
-COPY app.py .
+# Render အတွက် Port ဖွင့်ပေးခြင်း
+EXPOSE 10000
 
-EXPOSE 7860
-ENV GRADIO_SERVER_NAME="0.0.0.0"
-
-CMD ["python", "app.py"]
+# App ကို စတင် Run ခြင်း
+CMD ["python", "genai_app.py"]
