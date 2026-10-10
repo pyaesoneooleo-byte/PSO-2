@@ -1,89 +1,267 @@
-import gradio as gr
-import whisper
 import os
-import datetime
+import time
+import gradio as gr
 from google import genai
-from github import Github
 
-# Model လေးလံမှုကို သက်သာစေရန် 'base' သို့မဟုတ် 'small' ကို သုံးရန် အကြံပြုပါသည် (Cloud Free Tier အတွက်)
-print("Whisper Model ကို Load လုပ်နေပါသည်...")
-whisper_model = whisper.load_model("base") 
-
-def upload_to_github(github_token, repo_name, file_content, file_name):
-    try:
-        g = Github(github_token)
-        repo = g.get_repo(repo_name)
-        commit_message = f"Add new meeting note: {file_name}"
-        repo.create_file(file_name, commit_message, file_content, branch="main")
-        return f"အောင်မြင်စွာ တင်ပြီးပါပြီ။ ဖိုင်အမည်: {file_name}"
-    except Exception as e:
-        return f"GitHub သို့ တင်ရာတွင် အမှားအယွင်းဖြစ်နေပါသည်: {str(e)}"
-
-def process_audio(gemini_api_key, github_token, repo_name, audio_file):
-    if not gemini_api_key:
-        return "Error: Gemini API Key ကို ထည့်ပေးပါ။", ""
-    if not audio_file:
-        return "Error: အသံဖိုင် တင်ပေးပါ။", ""
+# =========================================================
+# 1. Transcript ထုတ်သည့် Function
+# =========================================================
+# =========================================================
+# 1. Transcript ထုတ်သည့် Function (Streaming ဖြင့် အမြန်ထုတ်ရန်)
+# =========================================================
+def generate_transcript(api_key, audio_path, language, style):
+    if not api_key.strip():
+        yield "⚠️ ကျေးဇူးပြု၍ API Key ကို အရင်ထည့်ပေးပါ။"
+        return
+    if not audio_path:
+        yield "⚠️ အသံဖိုင် တင်ပေးရန် သို့မဟုတ် အသံသွင်းပေးရန် လိုအပ်ပါသည်။"
+        return
 
     try:
-        result = whisper_model.transcribe(audio_file)
-        transcript = result["text"]
-
-        prompt = f"""
-        အောက်ပါ စာသားများသည် အစည်းအဝေး (သို့မဟုတ်) စာသင်ခန်းမှ အသံဖိုင်ကို စာသားအဖြစ် ပြောင်းထားခြင်း ဖြစ်ပါသည်။ 
-        ယင်းစာသားများကို အခြေခံ၍ သပ်ရပ်သော မှတ်တမ်း (Structured Notes) အဖြစ် ပြန်လည်ရေးသားပေးပါ။ 
-        မှတ်တမ်းတွင် အောက်ပါအချက်များ ပါဝင်ရမည် -
-        ၁။ အကျဉ်းချုပ် (Summary)
-        ၂။ အဓိက အချက်အလက်များ (Key Points)
-        ၃။ ဆက်လက်လုပ်ဆောင်ရမည့် အချက်များ (Action Items) (ရှိပါက)
+        client = genai.Client(api_key=api_key.strip())
         
-        မှတ်ချက်။ ။ စာသားသည် မြန်မာဘာသာဖြစ်ပါက မြန်မာဘာသာဖြင့်ပင် သပ်ရပ်စွာ ထုတ်ပေးပါ။ Markdown format ဖြင့်သာ ရေးပေးပါ။
+        # User ကို ချက်ချင်း အသိပေးရန် yield သုံးထားသည်
+        yield "⏳ အသံဖိုင်ကို တင်နေပါသည် (ခဏစောင့်ပေးပါ)..."
+        audio_file = client.files.upload(file=audio_path)
+        
+        while getattr(audio_file.state, 'name', str(audio_file.state)) == 'PROCESSING':
+            time.sleep(2)
+            audio_file = client.files.get(name=audio_file.name)
+            
+        if getattr(audio_file.state, 'name', str(audio_file.state)) == 'FAILED':
+            yield "❌ အသံဖိုင် လက်ခံရရှိမှု မအောင်မြင်ပါ။"
+            return
 
-        Transcript:
-        {transcript}
+        yield "⏳ Transcript စတင် ထုတ်ယူနေပါသည်..."
+        
+        style_instructions = {
+            "Keep original": "Provide an exact, word-for-word transcription of the audio.",
+            "Bullet point": "Extract the main ideas and statements from the audio and list them clearly as bullet points.",
+            "Polished fix": "Transcribe the audio accurately, but fix any grammatical errors, stutters, or awkward phrasing to make it highly professional and readable."
+        }
+        
+        prompt = f"""
+        You are an expert transcriptionist and meeting assistant. Listen to the attached audio.
+        The target language for the output is {language}.
+        
+        Instruction for style: {style_instructions[style]}
+        
+        Please provide the final text clearly in {language}.
         """
         
-        client = genai.Client(api_key=gemini_api_key)
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
+        # generate_content_stream ကို ပြောင်းသုံးထားပါသည်
+        response_stream = client.models.generate_content_stream(
+            model='gemini-3.8-flash', 
+            contents=[audio_file, prompt]
         )
-        notes = response.text
         
-        github_status = "GitHub သို့ မတင်ပါ။ (Token သို့မဟုတ် Repo အမည် မပါဝင်ပါ)"
-        if github_token and repo_name:
-            date_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            file_name = f"Notes/Meeting_Note_{date_str}.md" 
-            github_status = upload_to_github(github_token, repo_name, notes, file_name)
-
-        final_output = f"**GitHub Status:** {github_status}\n\n---\n\n{notes}"
-        return transcript, final_output
+        # ရလာတဲ့ စာသားတွေကို တစ်လုံးချင်း ချက်ချင်း (Real-time) ဖော်ပြရန်
+        full_text = ""
+        for chunk in response_stream:
+            full_text += chunk.text
+            yield full_text
+        
+        # အလုပ်လုပ်ပြီးပါက နေရာမယူရန် ဖျက်ပစ်မည်
+        client.files.delete(name=audio_file.name)
 
     except Exception as e:
-        return f"အမှားအယွင်းဖြစ်နေပါသည်: {str(e)}", ""
+        yield f"❌ အမှားအယွင်းဖြစ်ပေါ်နေပါသည်: {str(e)}"
 
-with gr.Blocks(title="Audio to Notes & GitHub") as app:
-    gr.Markdown("# 🎙️ Audio to Notes (with GitHub Auto-Upload)")
+# =========================================================
+# 2. Summary အသေးစိတ် ထုတ်သည့် Function
+# =========================================================
+def summarize_note(api_key, transcript_text, language):
+    if not api_key.strip():
+        return "⚠️ API Key လိုအပ်ပါသည်။"
+    if not transcript_text.strip() or "⚠️" in transcript_text or "❌" in transcript_text:
+        return "⚠️ Summarize ပြုလုပ်ရန် Transcript စာသား မရှိသေးပါ။ အရင်ဆုံး Transcript ကို အရင်ထုတ်ပါ။"
+
+    try:
+        client = genai.Client(api_key=api_key.strip())
+        print("Summary စတင်ထုတ်ယူနေပါသည်...")
+        
+        prompt = f"""
+        Analyze the following meeting transcript/notes and provide a detailed structured breakdown in {language}.
+        
+        Format strictly as follows:
+        
+        📝 Summary (အကျဉ်းချုပ်)
+        [Provide a concise overview of the entire text]
+        
+        ✅ To-Do List (လုပ်ဆောင်ရမည့်အရာများ)
+        [List actionable items clearly]
+        
+        🎯 Decisions (ဆုံးဖြတ်ချက်များ)
+        [List any key decisions or conclusions made]
+        
+        Transcript to analyze:
+        {transcript_text}
+        """
+        
+        response = client.models.generate_content(
+            model='gemini-3.8-flash', 
+            contents=[prompt]
+        )
+        
+        print("Summary ပြီးစီးပါပြီ။")
+        return response.text
+
+    except Exception as e:
+        return f"❌ အမှားအယွင်းဖြစ်ပေါ်နေပါသည်: {str(e)}"
+
+# =========================================================
+# Dark Blue Theme Setup (Custom Colors)
+# =========================================================
+dark_blue_theme = gr.themes.Monochrome(
+    font=[gr.themes.GoogleFont("Inter"), "system-ui", "sans-serif"],
+    radius_size="lg"
+).set(
+    body_background_fill="#040D21",       # နောက်ခံ အပြာရင့်
+    body_background_fill_dark="#040D21",
+    block_background_fill="#0A1931",       # Box များ၏ အရောင်
+    block_background_fill_dark="#0A1931",
+    block_border_color="#1E3A5F",
+    block_border_color_dark="#1E3A5F",
+    block_title_text_color="#F8FAFC",
+    body_text_color="#F1F5F9",
+    body_text_color_dark="#F1F5F9",
+    button_primary_background_fill="#2563EB", 
+    button_primary_background_fill_hover="#1D4ED8",
+    button_primary_text_color="#FFFFFF",
+    button_secondary_background_fill="#1E3A5F",
+    button_secondary_background_fill_hover="#2C5282",
+    button_secondary_text_color="#F1F5F9",
+    input_background_fill="#0F2544",
+    input_background_fill_dark="#0F2544",
+)
+
+# =========================================================
+# CSS for Dropdown Menu & Form Tabs Visibility Fix
+# =========================================================
+custom_css = """
+/* 1. Fix Dropdown Menu Background and Text Colors */
+.options.svelte-1a86xos, .options.svelte-182teed, ul.options, [role="listbox"] {
+    background-color: #0A1931 !important;
+    border: 1px solid #1E3A5F !important;
+}
+.options.svelte-1a86xos .item, ul.options li, [role="option"] {
+    color: #F1F5F9 !important;
+    background-color: #0A1931 !important;
+}
+.options.svelte-1a86xos .item:hover, .options.svelte-1a86xos .item.selected, ul.options li:hover, [role="option"]:hover, [role="option"][aria-selected="true"] {
+    background-color: #2563EB !important;
+    color: #FFFFFF !important;
+}
+
+/* 2. Fix Form Tabs (like 'Record (or) Upload Audio') Background */
+.tabs.svelte-1g805jl, .tab-nav, .tab-nav button, .tab-item, [role="tablist"], [role="tab"] {
+    background-color: #0A1931 !important;
+    color: #F1F5F9 !important;
+    border-color: #1E3A5F !important;
+}
+.tab-nav button.selected, [role="tab"][aria-selected="true"] {
+    background-color: #0F2544 !important;
+    border-bottom: 2px solid #2563EB !important;
+    color: #FFFFFF !important;
+}
+
+/* 3. Global force for any residual white backgrounds in inputs/dropdowns */
+select, option, ul, li {
+    background-color: #0A1931 !important;
+    color: #F1F5F9 !important;
+}
+"""
+
+# =========================================================
+# UI Layout Build
+# =========================================================
+with gr.Blocks(css=custom_css, title="AI Meeting Notes (Midnight Blue)") as demo:
+    
+    gr.HTML("""
+    <div style="text-align: center; padding: 20px 0 10px 0;">
+        <h1 style="color: #FFFFFF; font-weight: 800; font-size: 32px; margin: 0;">
+            🎙️ Pro Meeting Assistant
+        </h1>
+        <p style="color: #94A3B8; font-size: 15px; margin-top: 5px;">
+            Offline Record • Smart Transcript • Advanced Summary
+        </p>
+    </div>
+    """)
     
     with gr.Row():
-        gemini_input = gr.Textbox(label="🔑 Gemini API Key", type="password")
-        github_input = gr.Textbox(label="🐙 GitHub Personal Access Token (Optional)", type="password")
-        repo_input = gr.Textbox(label="📂 GitHub Repo (e.g. username/repo-name)", placeholder="yourusername/your-repo-name")
-        
-    with gr.Row():
-        with gr.Column():
-            audio_input = gr.Audio(type="filepath", label="အသံဖိုင် တင်ရန် (သို့) အသံသွင်းရန်")
-            submit_btn = gr.Button("📝 Notes ထုတ်လုပ်ပြီး GitHub သို့တင်မည်", variant="primary")
-        
-        with gr.Column():
-            notes_output = gr.Markdown(label="ထွက်ပေါ်လာသော Notes များ")
-            with gr.Accordion("Transcript (မူရင်းစာသား) ကြည့်ရန်", open=False):
-                transcript_output = gr.Textbox(show_label=False, lines=10)
+        with gr.Column(scale=4):
+            with gr.Group():
+                api_key_input = gr.Textbox(
+                    label="🔑 API Key",
+                    placeholder="AQ.Ab8...",
+                    type="password",
+                    show_label=True
+                )
+            
+            with gr.Row():
+                lang_dropdown = gr.Dropdown(
+                    choices=["Myanmar", "English", "Chinese", "Korean", "Japanese", "Malay", "Russian"],
+                    value="Myanmar",
+                    label="🌐 Language (ဘာသာစကား)",
+                    interactive=True
+                )
+                
+                style_dropdown = gr.Dropdown(
+                    choices=["Keep original", "Bullet point", "Polished fix"],
+                    value="Keep original",
+                    label="📝 Format Style",
+                    interactive=True
+                )
+            
+            gr.HTML("""
+            <div style="color: #94A3B8; font-size: 12px; margin-top: 10px; margin-bottom: 5px;">
+                💡 <b>Offline Record:</b> အင်တာနက်မရှိချိန် အသံသွင်းလိုပါက Record နှိပ်ပါ။ ပြီးလျှင် ညာဘက်အပေါ်ရှိ <b>Download (↓)</b> icon ကိုနှိပ်၍ စက်ထဲသိမ်းထားနိုင်ပါသည်။ အင်တာနက်ရမှ ပြန်တင်၍ သုံးနိုင်ပါသည်။
+            </div>
+            """)
+            
+            audio_input = gr.Audio(
+                label="🎤 Record (or) Upload Audio",
+                type="filepath",
+                sources=["microphone", "upload"]
+            )
+            
+            transcript_btn = gr.Button("Transcript ထုတ်မည် ⚡", variant="primary", size="lg")
+            
+        with gr.Column(scale=5):
+            
+            gr.Markdown("### 📄 Transcript (မူရင်းစာသား)")
+            transcript_output = gr.Textbox(
+                label="",
+                lines=8,
+                placeholder="Transcript ထုတ်မည် ကိုနှိပ်ပါ..."
+            )
+            
+            summarize_btn = gr.Button("✨ Summarize this note", variant="secondary")
+            
+            gr.Markdown("### 📊 Summary & Action Items")
+            summary_output = gr.Textbox(
+                label="",
+                lines=10,
+                placeholder="Summarize နှိပ်ပါက အသေးစိတ်အချက်အလက်များ ဤနေရာတွင် ပေါ်လာပါမည်..."
+            )
 
-    submit_btn.click(
-        fn=process_audio,
-        inputs=[gemini_input, github_input, repo_input, audio_input],
-        outputs=[transcript_output, notes_output]
+    transcript_btn.click(
+        fn=generate_transcript,
+        inputs=[api_key_input, audio_input, lang_dropdown, style_dropdown],
+        outputs=transcript_output
+    )
+    
+    summarize_btn.click(
+        fn=summarize_note,
+        inputs=[api_key_input, transcript_output, lang_dropdown],
+        outputs=summary_output
     )
 
-app.launch()
+# =========================================================
+# Run App
+# =========================================================
+if __name__ == "__main__":
+    print("=" * 70)
+    print("Starting Pro Meeting Assistant (Midnight Blue Theme)...")
+    print("=" * 70)
+    demo.launch(server_name="0.0.0.0", server_port=10000, theme=dark_blue_theme)
