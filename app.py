@@ -36,17 +36,15 @@ def generate_transcript(api_key, audio_path, language, style):
             "Polished fix": "Transcribe the audio accurately, but fix any grammatical errors, stutters, or awkward phrasing to make it highly professional and readable."
         }
         
-        prompt = f"""
-        You are an expert transcriptionist and meeting assistant. Listen to the attached audio.
-        The target language for the output is {language}.
-        
-        Instruction for style: {style_instructions[style]}
-        
-        Please provide the final text clearly in {language}.
-        """
+        prompt = (
+            "You are an expert transcriptionist and meeting assistant. Listen to the attached audio.\n"
+            f"The target language for the output is {language}.\n\n"
+            f"Instruction for style: {style_instructions[style]}\n\n"
+            f"Please provide the final text clearly in {language}."
+        )
         
         response_stream = client.models.generate_content_stream(
-            model='gemini-2.5-flash',  # ⚠️ မော်ဒယ်အမည်ကို တရားဝင်သုံးသော model သို့ ပြောင်းထားပါသည်
+            model='gemini-2.5-flash',
             contents=[audio_file, prompt]
         )
         
@@ -73,26 +71,21 @@ def summarize_note(api_key, transcript_text, language):
         client = genai.Client(api_key=api_key.strip())
         print("Summary စတင်ထုတ်ယူနေပါသည်...")
         
-        prompt = f"""
-        Analyze the following meeting transcript/notes and provide a detailed structured breakdown in {language}.
-        
-        Format strictly as follows:
-        
-        📝 Summary (အကျဉ်းချုပ်)
-        [Provide a concise overview of the entire text]
-        
-        ✅ To-Do List (လုပ်ဆောင်ရမည့်အရာများ)
-        [List actionable items clearly]
-        
-        🎯 Decisions (ဆုံးဖြတ်ချက်များ)
-        [List any key decisions or conclusions made]
-        
-        Transcript to analyze:
-        {transcript_text}
-        """
+        prompt = (
+            f"Analyze the following meeting transcript/notes and provide a detailed structured breakdown in {language}.\n\n"
+            "Format strictly as follows:\n\n"
+            "📝 Summary (အကျဉ်းချုပ်)\n"
+            "[Provide a concise overview of the entire text]\n\n"
+            "✅ To-Do List (လုပ်ဆောင်ရမည့်အရာများ)\n"
+            "[List actionable items clearly]\n\n"
+            "🎯 Decisions (ဆုံးဖြတ်ချက်များ)\n"
+            "[List any key decisions or conclusions made]\n\n"
+            "Transcript to analyze:\n"
+            f"{transcript_text}"
+        )
         
         response = client.models.generate_content(
-            model='gemini-2.5-flash',  # ⚠️ မော်ဒယ်အမည်ကို တရားဝင်သုံးသော model သို့ ပြောင်းထားပါသည်
+            model='gemini-2.5-flash',
             contents=[prompt]
         )
         
@@ -203,4 +196,52 @@ with gr.Blocks(theme=dark_blue_theme, css=custom_css, title="AI Meeting Notes (M
             
             gr.HTML("""
             <div style="color: #94A3B8; font-size: 12px; margin-top: 10px; margin-bottom: 5px;">
-                💡 <b>Offline Record:</b> အင်တာနက်မရှိချိန် အသံသွင်းလိုပါက Record နှိပ်ပါ။ ပြီးလျှင် ညာ
+                💡 <b>Offline Record:</b> အင်တာနက်မရှိချိန် အသံသွင်းလိုပါက Record နှိပ်ပါ။ ပြီးလျှင် ညာဘက်အပေါ်ရှိ <b>Download (↓)</b> icon ကိုနှိပ်၍ စက်ထဲသိမ်းထားနိုင်ပါသည်။ အင်တာနက်ရမှ ပြန်တင်၍ သုံးနိုင်ပါသည်။
+            </div>
+            """)
+            
+            audio_input = gr.Audio(
+                label="🎤 Record (or) Upload Audio",
+                type="filepath",
+                sources=["microphone", "upload"]
+            )
+            
+            transcript_btn = gr.Button("Transcript ထုတ်မည် ⚡", variant="primary", size="lg")
+            
+        with gr.Column(scale=5):
+            gr.Markdown("### 📄 Transcript (မူရင်းစာသား)")
+            transcript_output = gr.Textbox(
+                label="",
+                lines=8,
+                placeholder="Transcript ထုတ်မည် ကိုနှိပ်ပါ..."
+            )
+            
+            summarize_btn = gr.Button("✨ Summarize this note", variant="secondary")
+            
+            gr.Markdown("### 📊 Summary & Action Items")
+            summary_output = gr.Textbox(
+                label="",
+                lines=10,
+                placeholder="Summarize နှိပ်ပါက အသေးစိတ်အချက်အလက်များ ဤနေရာတွင် ပေါ်လာပါမည်..."
+            )
+
+    transcript_btn.click(
+        fn=generate_transcript,
+        inputs=[api_key_input, audio_input, lang_dropdown, style_dropdown],
+        outputs=transcript_output
+    )
+    
+    summarize_btn.click(
+        fn=summarize_note,
+        inputs=[api_key_input, transcript_output, lang_dropdown],
+        outputs=summary_output
+    )
+
+if __name__ == "__main__":
+    print("=" * 70)
+    print("Starting Pro Meeting Assistant (Midnight Blue Theme)...")
+    print("=" * 70)
+    
+    demo.launch(
+        server_name="0.0.0.0", 
+        server_port=7860
