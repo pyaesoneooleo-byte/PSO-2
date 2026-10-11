@@ -260,8 +260,31 @@ with gr.Blocks(css=custom_css, title="AI Meeting Notes (Midnight Blue)") as demo
 # =========================================================
 # Run App
 # =========================================================
+import gradio as gr
+
+# Midnight Blue Theme ကို သတ်မှတ်ခြင်း (ဥပမာ)
+dark_blue_theme = gr.themes.Soft(
+    primary_hue="indigo",
+    secondary_hue="blue",
+).set(
+    body_background_fill="#0f172a",
+    block_background_fill="#1e293b",
+)
+
+# Demo UI တည်ဆောက်ခြင်း (သင့်ရဲ့ UI ကုဒ်များကို ဒီနေရာမှာ ထည့်ပါ)
+with gr.Blocks(theme=dark_blue_theme) as demo:
+    gr.Markdown("# Pro Meeting Assistant")
+    gr.Markdown("AI ဖြင့် အစည်းအဝေးများကို မှတ်တမ်းတင်ပြီး အကျဉ်းချုပ်ပေးမည့် စနစ်။")
+    # UI components များကို ဤနေရာတွင် ထည့်ပါ
+
 if __name__ == "__main__":
     print("=" * 70)
     print("Starting Pro Meeting Assistant (Midnight Blue Theme)...")
     print("=" * 70)
-    demo.launch(theme=dark_blue_theme)
+    
+    # GitHub (သို့မဟုတ်) Production အတွက် share=True သို့မဟုတ် server port များကို ထည့်သွင်းအသုံးပြုနိုင်ပါသည်
+    demo.launch(
+        server_name="0.0.0.0", 
+        server_port=7860, 
+        share=False
+    )
