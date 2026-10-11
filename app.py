@@ -4,9 +4,6 @@ import gradio as gr
 from google import genai
 
 # =========================================================
-# 1. Transcript ထုတ်သည့် Function
-# =========================================================
-# =========================================================
 # 1. Transcript ထုတ်သည့် Function (Streaming ဖြင့် အမြန်ထုတ်ရန်)
 # =========================================================
 def generate_transcript(api_key, audio_path, language, style):
@@ -20,7 +17,6 @@ def generate_transcript(api_key, audio_path, language, style):
     try:
         client = genai.Client(api_key=api_key.strip())
         
-        # User ကို ချက်ချင်း အသိပေးရန် yield သုံးထားသည်
         yield "⏳ အသံဖိုင်ကို တင်နေပါသည် (ခဏစောင့်ပေးပါ)..."
         audio_file = client.files.upload(file=audio_path)
         
@@ -49,19 +45,16 @@ def generate_transcript(api_key, audio_path, language, style):
         Please provide the final text clearly in {language}.
         """
         
-        # generate_content_stream ကို ပြောင်းသုံးထားပါသည်
         response_stream = client.models.generate_content_stream(
-            model='gemini-3.8-flash', 
+            model='gemini-2.5-flash',  # ⚠️ မော်ဒယ်အမည်ကို တရားဝင်သုံးသော model သို့ ပြောင်းထားပါသည်
             contents=[audio_file, prompt]
         )
         
-        # ရလာတဲ့ စာသားတွေကို တစ်လုံးချင်း ချက်ချင်း (Real-time) ဖော်ပြရန်
         full_text = ""
         for chunk in response_stream:
             full_text += chunk.text
             yield full_text
         
-        # အလုပ်လုပ်ပြီးပါက နေရာမယူရန် ဖျက်ပစ်မည်
         client.files.delete(name=audio_file.name)
 
     except Exception as e:
@@ -99,7 +92,7 @@ def summarize_note(api_key, transcript_text, language):
         """
         
         response = client.models.generate_content(
-            model='gemini-3.8-flash', 
+            model='gemini-2.5-flash',  # ⚠️ မော်ဒယ်အမည်ကို တရားဝင်သုံးသော model သို့ ပြောင်းထားပါသည်
             contents=[prompt]
         )
         
@@ -116,16 +109,16 @@ dark_blue_theme = gr.themes.Monochrome(
     font=[gr.themes.GoogleFont("Inter"), "system-ui", "sans-serif"],
     radius_size="lg"
 ).set(
-    body_background_fill="#040D21",       # နောက်ခံ အပြာရင့်
+    body_background_fill="#040D21",
     body_background_fill_dark="#040D21",
-    block_background_fill="#0A1931",       # Box များ၏ အရောင်
+    block_background_fill="#0A1931",
     block_background_fill_dark="#0A1931",
     block_border_color="#1E3A5F",
     block_border_color_dark="#1E3A5F",
     block_title_text_color="#F8FAFC",
     body_text_color="#F1F5F9",
     body_text_color_dark="#F1F5F9",
-    button_primary_background_fill="#2563EB", 
+    button_primary_background_fill="#2563EB",
     button_primary_background_fill_hover="#1D4ED8",
     button_primary_text_color="#FFFFFF",
     button_secondary_background_fill="#1E3A5F",
@@ -139,7 +132,6 @@ dark_blue_theme = gr.themes.Monochrome(
 # CSS for Dropdown Menu & Form Tabs Visibility Fix
 # =========================================================
 custom_css = """
-/* 1. Fix Dropdown Menu Background and Text Colors */
 .options.svelte-1a86xos, .options.svelte-182teed, ul.options, [role="listbox"] {
     background-color: #0A1931 !important;
     border: 1px solid #1E3A5F !important;
@@ -152,8 +144,6 @@ custom_css = """
     background-color: #2563EB !important;
     color: #FFFFFF !important;
 }
-
-/* 2. Fix Form Tabs (like 'Record (or) Upload Audio') Background */
 .tabs.svelte-1g805jl, .tab-nav, .tab-nav button, .tab-item, [role="tablist"], [role="tab"] {
     background-color: #0A1931 !important;
     color: #F1F5F9 !important;
@@ -164,8 +154,6 @@ custom_css = """
     border-bottom: 2px solid #2563EB !important;
     color: #FFFFFF !important;
 }
-
-/* 3. Global force for any residual white backgrounds in inputs/dropdowns */
 select, option, ul, li {
     background-color: #0A1931 !important;
     color: #F1F5F9 !important;
@@ -173,9 +161,9 @@ select, option, ul, li {
 """
 
 # =========================================================
-# UI Layout Build
+# UI Layout Build & Execution
 # =========================================================
-with gr.Blocks(css=custom_css, title="AI Meeting Notes (Midnight Blue)") as demo:
+with gr.Blocks(theme=dark_blue_theme, css=custom_css, title="AI Meeting Notes (Midnight Blue)") as demo:
     
     gr.HTML("""
     <div style="text-align: center; padding: 20px 0 10px 0;">
@@ -215,76 +203,4 @@ with gr.Blocks(css=custom_css, title="AI Meeting Notes (Midnight Blue)") as demo
             
             gr.HTML("""
             <div style="color: #94A3B8; font-size: 12px; margin-top: 10px; margin-bottom: 5px;">
-                💡 <b>Offline Record:</b> အင်တာနက်မရှိချိန် အသံသွင်းလိုပါက Record နှိပ်ပါ။ ပြီးလျှင် ညာဘက်အပေါ်ရှိ <b>Download (↓)</b> icon ကိုနှိပ်၍ စက်ထဲသိမ်းထားနိုင်ပါသည်။ အင်တာနက်ရမှ ပြန်တင်၍ သုံးနိုင်ပါသည်။
-            </div>
-            """)
-            
-            audio_input = gr.Audio(
-                label="🎤 Record (or) Upload Audio",
-                type="filepath",
-                sources=["microphone", "upload"]
-            )
-            
-            transcript_btn = gr.Button("Transcript ထုတ်မည် ⚡", variant="primary", size="lg")
-            
-        with gr.Column(scale=5):
-            
-            gr.Markdown("### 📄 Transcript (မူရင်းစာသား)")
-            transcript_output = gr.Textbox(
-                label="",
-                lines=8,
-                placeholder="Transcript ထုတ်မည် ကိုနှိပ်ပါ..."
-            )
-            
-            summarize_btn = gr.Button("✨ Summarize this note", variant="secondary")
-            
-            gr.Markdown("### 📊 Summary & Action Items")
-            summary_output = gr.Textbox(
-                label="",
-                lines=10,
-                placeholder="Summarize နှိပ်ပါက အသေးစိတ်အချက်အလက်များ ဤနေရာတွင် ပေါ်လာပါမည်..."
-            )
-
-    transcript_btn.click(
-        fn=generate_transcript,
-        inputs=[api_key_input, audio_input, lang_dropdown, style_dropdown],
-        outputs=transcript_output
-    )
-    
-    summarize_btn.click(
-        fn=summarize_note,
-        inputs=[api_key_input, transcript_output, lang_dropdown],
-        outputs=summary_output
-    )
-
-# =========================================================
-# Run App
-# =========================================================
-import gradio as gr
-
-# Midnight Blue Theme ကို သတ်မှတ်ခြင်း (ဥပမာ)
-dark_blue_theme = gr.themes.Soft(
-    primary_hue="indigo",
-    secondary_hue="blue",
-).set(
-    body_background_fill="#0f172a",
-    block_background_fill="#1e293b",
-)
-
-# Demo UI တည်ဆောက်ခြင်း (သင့်ရဲ့ UI ကုဒ်များကို ဒီနေရာမှာ ထည့်ပါ)
-with gr.Blocks(theme=dark_blue_theme) as demo:
-    gr.Markdown("# Pro Meeting Assistant")
-    gr.Markdown("AI ဖြင့် အစည်းအဝေးများကို မှတ်တမ်းတင်ပြီး အကျဉ်းချုပ်ပေးမည့် စနစ်။")
-    # UI components များကို ဤနေရာတွင် ထည့်ပါ
-
-if __name__ == "__main__":
-    print("=" * 70)
-    print("Starting Pro Meeting Assistant (Midnight Blue Theme)...")
-    print("=" * 70)
-    
-    # GitHub (သို့မဟုတ်) Production အတွက် share=True သို့မဟုတ် server port များကို ထည့်သွင်းအသုံးပြုနိုင်ပါသည်
-    demo.launch(
-        server_name="0.0.0.0", 
-        server_port=7860, 
-        share=False
-    )
+                💡 <b>Offline Record:</b> အင်တာနက်မရှိချိန် အသံသွင်းလိုပါက Record နှိပ်ပါ။ ပြီးလျှင် ညာ
