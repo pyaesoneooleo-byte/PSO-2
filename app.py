@@ -44,7 +44,7 @@ def generate_transcript(api_key, audio_path, language, style):
         )
         
         response_stream = client.models.generate_content_stream(
-            model='gemini-2.5-flash',
+            model='gemini-3.8-flash',
             contents=[audio_file, prompt]
         )
         
@@ -85,7 +85,7 @@ def summarize_note(api_key, transcript_text, language):
         )
         
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.8-flash',
             contents=[prompt]
         )
         
@@ -156,12 +156,12 @@ select, option, ul, li {
 # =========================================================
 # UI Layout Build & Execution
 # =========================================================
-with gr.Blocks(theme=dark_blue_theme, css=custom_css, title="AI Meeting Notes (Midnight Blue)") as demo:
+with gr.Blocks(theme=dark_blue_theme, css=custom_css, title="Meeting Minutes by Pyae Sone Oo") as demo:
     
     gr.HTML("""
     <div style="text-align: center; padding: 20px 0 10px 0;">
         <h1 style="color: #FFFFFF; font-weight: 800; font-size: 32px; margin: 0;">
-            🎙️ Pro Meeting Assistant
+            🎙️ Meeting Minutes by Pyae Sone Oo
         </h1>
         <p style="color: #94A3B8; font-size: 15px; margin-top: 5px;">
             Offline Record • Smart Transcript • Advanced Summary
@@ -239,7 +239,7 @@ with gr.Blocks(theme=dark_blue_theme, css=custom_css, title="AI Meeting Notes (M
 
 if __name__ == "__main__":
     print("=" * 70)
-    print("Starting Pro Meeting Assistant (Midnight Blue Theme)...")
+    print("Starting Meeting Minutes by Pyae Sone Oo (Midnight Blue Theme)...")
     print("=" * 70)
     
     demo.launch(
