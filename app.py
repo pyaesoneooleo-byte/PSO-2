@@ -1,121 +1,135 @@
 import os
+import time
 import gradio as gr
-from groq import Groq
+from google import genai
+
+MODEL_NAME = "gemini-3.8-flash"
 
 # =========================================================
-# 1. Transcript ထုတ်သည့် Function (Groq Whisper Large v3 + Llama 3.3)
+# 1. Transcript ထုတ်သည့် Function (gemini-3.8-flash + Smart Auto-Retry)
 # =========================================================
 def generate_transcript(api_key, audio_path, language, style):
     if not api_key.strip():
-        yield "⚠️ ကျေးဇူးပြု၍ Groq API Key (gsk_...) ကို အရင်ထည့်ပေးပါ။"
+        yield "⚠️ ကျေးဇူးပြု၍ API Key (AQ.Ab...) ကို အရင်ထည့်ပေးပါ။"
         return
     if not audio_path:
         yield "⚠️ အသံဖိုင် တင်ပေးရန် သို့မဟုတ် အသံသွင်းပေးရန် လိုအပ်ပါသည်။"
         return
 
-    try:
-        client = Groq(api_key=api_key.strip())
-        
-        yield "⏳ Whisper Large v3 ဖြင့် အသံဖိုင်ကို စာသားပြောင်းနေပါသည် (ခဏစောင့်ပေးပါ)..."
-        
-        # ဘာသာစကား Code များ သတ်မှတ်ခြင်း
-        lang_codes = {
-            "Myanmar": "my",
-            "English": "en",
-            "Chinese": "zh",
-            "Korean": "ko",
-            "Japanese": "ja",
-            "Malay": "ms",
-            "Russian": "ru"
-        }
-        selected_lang_code = lang_codes.get(language, None)
+    client = genai.Client(api_key=api_key.strip())
+    audio_file = None
 
-        # Groq Whisper API ဖြင့် အသံဖိုင်ကို စာသားပြောင်းခြင်း
-        with open(audio_path, "rb") as file:
-            transcription = client.audio.transcriptions.create(
-                file=(os.path.basename(audio_path), file.read()),
-                model="whisper-large-v3",
-                language=selected_lang_code,
-                prompt="မြန်မာဘာသာစကားဖြင့် ပြောဆိုထားသော အစည်းအဝေး မှတ်တမ်း ဖြစ်ပါသည်။" if language == "Myanmar" else "",
-                temperature=0.0,
-                response_format="text"
-            )
+    try:
+        yield "⏳ အသံဖိုင်ကို တင်နေပါသည် (ခဏစောင့်ပေးပါ)..."
+        audio_file = client.files.upload(file=audio_path)
         
-        raw_text = transcription.strip()
-        
-        # "Keep original" ဆိုလျှင် Whisper မှ ထွက်လာသည့်အတိုင်း တိုက်ရိုက်ပြမည်
-        if style == "Keep original":
-            yield raw_text
+        while getattr(audio_file.state, 'name', str(audio_file.state)) == 'PROCESSING':
+            time.sleep(2)
+            audio_file = client.files.get(name=audio_file.name)
+            
+        if getattr(audio_file.state, 'name', str(audio_file.state)) == 'FAILED':
+            yield "❌ အသံဖိုင် လက်ခံရရှိမှု မအောင်မြင်ပါ။"
             return
 
-        # "Bullet point" သို့မဟုတ် "Polished fix" ဆိုလျှင် Llama 3.3 ဖြင့် စာသားပြန်စီပေးမည်
-        yield "⏳ ရွေးချယ်ထားသော Format Style အတိုင်း စာသားပြန်လည် ပြင်ဆင်နေပါသည်..."
-        
         style_instructions = {
-            "Bullet point": "Extract the main ideas and statements from the transcript and list them clearly as bullet points.",
-            "Polished fix": "Refine the transcript by fixing any grammatical errors, stutters, or spelling mistakes to make it clean, professional, and highly readable while keeping the original meaning."
+            "Keep original": "Provide an exact, word-for-word transcription of the audio.",
+            "Bullet point": "Extract the main ideas and statements from the audio and list them clearly as bullet points.",
+            "Polished fix": "Transcribe the audio accurately, but fix any grammatical errors, stutters, or awkward phrasing to make it highly professional and readable."
         }
         
         prompt = (
-            "You are an expert transcriptionist and meeting assistant.\n"
-            f"The target language for the output is {language}.\n"
-            f"Instruction: {style_instructions[style]}\n"
-            f"Please provide ONLY the final formatted text clearly in {language} without any introductory remarks.\n\n"
-            f"Raw Transcript:\n{raw_text}"
+            "You are an expert transcriptionist and meeting assistant. Listen to the attached audio.\n"
+            f"The target language for the output is {language}.\n\n"
+            f"Instruction for style: {style_instructions[style]}\n\n"
+            f"Please provide the final text clearly in {language}."
         )
-        
-        stream = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            stream=True
-        )
-        
-        full_text = ""
-        for chunk in stream:
-            content = chunk.choices[0].delta.content
-            if content:
-                full_text += content
-                yield full_text
+
+        max_retries = 6
+        last_error = ""
+
+        for attempt in range(max_retries):
+            try:
+                yield "⏳ Transcript စတင် ထုတ်ယူနေပါသည်..."
+                response_stream = client.models.generate_content_stream(
+                    model=MODEL_NAME,
+                    contents=[audio_file, prompt]
+                )
+                
+                full_text = ""
+                for chunk in response_stream:
+                    if chunk.text:
+                        full_text += chunk.text
+                        yield full_text
+                
+                return  # အောင်မြင်စွာ ပြီးဆုံးသွားပါက Function မှ ထွက်မည်
+
+            except Exception as e:
+                last_error = str(e)
+                if "503" in last_error or "UNAVAILABLE" in last_error or "overloaded" in last_error.lower():
+                    wait_sec = min((attempt + 1) * 3, 12)  # 3s, 6s, 9s, 12s စောင့်မည်
+                    yield f"⚠️ Server လူသုံးများနေပါသည် (High Demand)။ {wait_sec} စက္ကန့်စောင့်ပြီး အလိုအလျောက် ပြန်ကြိုးစားနေပါသည် ({attempt + 1}/{max_retries})..."
+                    time.sleep(wait_sec)
+                else:
+                    raise e
+
+        yield f"❌ Server လူသုံးများနေဆဲ ဖြစ်ပါသည်။ ခဏနေမှ ပြန်နှိပ်ကြည့်ပါ။\nအသေးစိတ်: {last_error}"
 
     except Exception as e:
         yield f"❌ အမှားအယွင်းဖြစ်ပေါ်နေပါသည်: {str(e)}"
+    
+    finally:
+        if audio_file:
+            try:
+                client.files.delete(name=audio_file.name)
+            except:
+                pass
 
 # =========================================================
-# 2. Summary အသေးစိတ် ထုတ်သည့် Function (Llama 3.3 70B)
+# 2. Summary အသေးစိတ် ထုတ်သည့် Function (gemini-3.8-flash + Smart Auto-Retry)
 # =========================================================
 def summarize_note(api_key, transcript_text, language):
     if not api_key.strip():
-        return "⚠️ Groq API Key လိုအပ်ပါသည်။"
+        return "⚠️ API Key လိုအပ်ပါသည်။"
     if not transcript_text.strip() or "⚠️" in transcript_text or "❌" in transcript_text:
         return "⚠️ Summarize ပြုလုပ်ရန် Transcript စာသား မရှိသေးပါ။ အရင်ဆုံး Transcript ကို အရင်ထုတ်ပါ။"
 
-    try:
-        client = Groq(api_key=api_key.strip())
-        print("Groq Llama 3.3 ဖြင့် Summary စတင်ထုတ်ယူနေပါသည်...")
-        
-        prompt = (
-            f"Analyze the following meeting transcript/notes and provide a detailed structured breakdown in {language}.\n\n"
-            "Format strictly as follows:\n\n"
-            "📝 Summary (အကျဉ်းချုပ်)\n"
-            "[Provide a concise overview of the entire text]\n\n"
-            "✅ To-Do List (လုပ်ဆောင်ရမည့်အရာများ)\n"
-            "[List actionable items clearly]\n\n"
-            "🎯 Decisions (ဆုံးဖြတ်ချက်များ)\n"
-            "[List any key decisions or conclusions made]\n\n"
-            "Transcript to analyze:\n"
-            f"{transcript_text}"
-        )
-        
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}]
-        )
-        
-        print("Summary ပြီးစီးပါပြီ။")
-        return response.choices[0].message.content
+    client = genai.Client(api_key=api_key.strip())
+    prompt = (
+        f"Analyze the following meeting transcript/notes and provide a detailed structured breakdown in {language}.\n\n"
+        "Format strictly as follows:\n\n"
+        "📝 Summary (အကျဉ်းချုပ်)\n"
+        "[Provide a concise overview of the entire text]\n\n"
+        "✅ To-Do List (လုပ်ဆောင်ရမည့်အရာများ)\n"
+        "[List actionable items clearly]\n\n"
+        "🎯 Decisions (ဆုံးဖြတ်ချက်များ)\n"
+        "[List any key decisions or conclusions made]\n\n"
+        "Transcript to analyze:\n"
+        f"{transcript_text}"
+    )
 
-    except Exception as e:
-        return f"❌ အမှားအယွင်းဖြစ်ပေါ်နေပါသည်: {str(e)}"
+    max_retries = 6
+    last_error = ""
+
+    for attempt in range(max_retries):
+        try:
+            print(f"Summary စတင်ထုတ်ယူနေပါသည် (Attempt {attempt + 1})...")
+            response = client.models.generate_content(
+                model=MODEL_NAME,
+                contents=[prompt]
+            )
+            print("Summary ပြီးစီးပါပြီ။")
+            return response.text
+
+        except Exception as e:
+            last_error = str(e)
+            if "503" in last_error or "UNAVAILABLE" in last_error or "overloaded" in last_error.lower():
+                wait_sec = min((attempt + 1) * 3, 12)
+                print(f"High Demand ဖြစ်နေ၍ {wait_sec} စက္ကန့်စောင့်နေပါသည်...")
+                time.sleep(wait_sec)
+            else:
+                return f"❌ အမှားအယွင်းဖြစ်ပေါ်နေပါသည်: {last_error}"
+
+    return f"❌ Server လူသုံးများနေဆဲ ဖြစ်ပါသည်။ ခဏနေမှ ပြန်နှိပ်ကြည့်ပါ။\nအသေးစိတ်: {last_error}"
 
 # =========================================================
 # Dark Blue Theme Setup (Custom Colors)
@@ -186,7 +200,7 @@ with gr.Blocks(theme=dark_blue_theme, css=custom_css, title="Meeting Minutes by 
         "🎙️ Meeting Minutes by Pyae Sone Oo"
         "</h1>"
         "<p style='color: #94A3B8; font-size: 15px; margin-top: 5px;'>"
-        "Offline Record • Smart Transcript (Groq Whisper) • Advanced Summary"
+        "Offline Record • Smart Transcript • Advanced Summary"
         "</p>"
         "</div>"
     )
@@ -195,8 +209,8 @@ with gr.Blocks(theme=dark_blue_theme, css=custom_css, title="Meeting Minutes by 
         with gr.Column(scale=4):
             with gr.Group():
                 api_key_input = gr.Textbox(
-                    label="🔑 Groq API Key",
-                    placeholder="gsk_...",
+                    label="🔑 API Key",
+                    placeholder="AQ.Ab8...",
                     type="password",
                     show_label=True
                 )
@@ -223,7 +237,7 @@ with gr.Blocks(theme=dark_blue_theme, css=custom_css, title="Meeting Minutes by 
             )
             
             audio_input = gr.Audio(
-                label="🎤 Record (or) Upload Audio (Max 25MB)",
+                label="🎤 Record (or) Upload Audio",
                 type="filepath",
                 sources=["microphone", "upload"]
             )
@@ -262,7 +276,7 @@ with gr.Blocks(theme=dark_blue_theme, css=custom_css, title="Meeting Minutes by 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 7860))
     print("=" * 70)
-    print(f"Starting Meeting Minutes by Pyae Sone Oo (Groq Engine) on port {port}...")
+    print(f"Starting Meeting Minutes by Pyae Sone Oo on port {port}...")
     print("=" * 70)
     
     demo.launch(
