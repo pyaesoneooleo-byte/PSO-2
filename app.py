@@ -54,9 +54,8 @@ def generate_transcript(api_key, audio_path, language, style):
         success = False
         last_error = ""
 
-        # Model တစ်ခုချင်းစီကို စမ်းသပ်ခြင်း
         for model_name in MODELS_TO_TRY:
-            for attempt in range(2):  # Model တစ်ခုကို ၂ ကြိမ်စီ ကြိုးစားမည်
+            for attempt in range(2):
                 try:
                     yield f"⏳ ({model_name}) ဖြင့် Transcript စတင် ထုတ်ယူနေပါသည်..."
                     response_stream = client.models.generate_content_stream(
@@ -71,20 +70,18 @@ def generate_transcript(api_key, audio_path, language, style):
                             yield full_text
                     
                     success = True
-                    break  # အောင်မြင်သွားရင် Retry Loop မှ ထွက်မည်
+                    break
 
                 except Exception as e:
                     last_error = str(e)
-                    # 503 သို့မဟုတ် Overloaded ဖြစ်နေပါက ၃ စက္ကန့်စောင့်ပြီး ပြန်စမ်းမည်
                     if "503" in last_error or "UNAVAILABLE" in last_error or "overloaded" in last_error.lower():
                         yield f"⚠️ {model_name} လူသုံးများနေပါသည် (High Demand)။ ၃ စက္ကန့်စောင့်ပြီး ပြန်ကြိုးစားနေပါသည်..."
                         time.sleep(3)
                     else:
-                        # API Key မှားတာမျိုးဆိုရင် ဆက်မစမ်းဘဲ တန်းရပ်မည်
                         raise e
             
             if success:
-                break  # အောင်မြင်သွားရင် Model Loop မှ ထွက်မည်
+                break
 
         if not success:
             yield f"❌ Server များ အားလုံး အလုပ်များနေပါသည်။ ခဏနေမှ ပြန်စမ်းကြည့်ပါ။\nအသေးစိတ်: {last_error}"
@@ -93,7 +90,6 @@ def generate_transcript(api_key, audio_path, language, style):
         yield f"❌ အမှားအယွင်းဖြစ်ပေါ်နေပါသည်: {str(e)}"
     
     finally:
-        # အောင်မြင်သည်ဖြစ်စေ၊ မအောင်မြင်သည်ဖြစ်စေ တင်ထားသော Audio ဖိုင်ကို ပြန်ဖျက်မည်
         if audio_file:
             try:
                 client.files.delete(name=audio_file.name)
@@ -208,4 +204,93 @@ select, option, ul, li {
 # =========================================================
 with gr.Blocks(theme=dark_blue_theme, css=custom_css, title="Meeting Minutes by Pyae Sone Oo") as demo:
     
-    gr.HTML("""
+    gr.HTML(
+        "<div style='text-align: center; padding: 20px 0 10px 0;'>"
+        "<h1 style='color: #FFFFFF; font-weight: 800; font-size: 32px; margin: 0;'>"
+        "🎙️ Meeting Minutes by Pyae Sone Oo"
+        "</h1>"
+        "<p style='color: #94A3B8; font-size: 15px; margin-top: 5px;'>"
+        "Offline Record • Smart Transcript • Advanced Summary"
+        "</p>"
+        "</div>"
+    )
+    
+    with gr.Row():
+        with gr.Column(scale=4):
+            with gr.Group():
+                api_key_input = gr.Textbox(
+                    label="🔑 API Key",
+                    placeholder="AIzaSy...",
+                    type="password",
+                    show_label=True
+                )
+            
+            with gr.Row():
+                lang_dropdown = gr.Dropdown(
+                    choices=["Myanmar", "English", "Chinese", "Korean", "Japanese", "Malay", "Russian"],
+                    value="Myanmar",
+                    label="🌐 Language (ဘာသာစကား)",
+                    interactive=True
+                )
+                
+                style_dropdown = gr.Dropdown(
+                    choices=["Keep original", "Bullet point", "Polished fix"],
+                    value="Keep original",
+                    label="📝 Format Style",
+                    interactive=True
+                )
+            
+            gr.HTML(
+                "<div style='color: #94A3B8; font-size: 12px; margin-top: 10px; margin-bottom: 5px;'>"
+                "💡 <b>Offline Record:</b> အင်တာနက်မရှိချိန် အသံသွင်းလိုပါက Record နှိပ်ပါ။ ပြီးလျှင် ညာဘက်အပေါ်ရှိ <b>Download (↓)</b> icon ကိုနှိပ်၍ စက်ထဲသိမ်းထားနိုင်ပါသည်။ အင်တာနက်ရမှ ပြန်တင်၍ သုံးနိုင်ပါသည်။"
+                "</div>"
+            )
+            
+            audio_input = gr.Audio(
+                label="🎤 Record (or) Upload Audio",
+                type="filepath",
+                sources=["microphone", "upload"]
+            )
+            
+            transcript_btn = gr.Button("Transcript ထုတ်မည် ⚡", variant="primary", size="lg")
+            
+        with gr.Column(scale=5):
+            gr.Markdown("### 📄 Transcript (မူရင်းစာသား)")
+            transcript_output = gr.Textbox(
+                label="",
+                lines=8,
+                placeholder="Transcript ထုတ်မည် ကိုနှိပ်ပါ..."
+            )
+            
+            summarize_btn = gr.Button("✨ Summarize this note", variant="secondary")
+            
+            gr.Markdown("### 📊 Summary & Action Items")
+            summary_output = gr.Textbox(
+                label="",
+                lines=10,
+                placeholder="Summarize နှိပ်ပါက အသေးစိတ်အချက်အလက်များ ဤနေရာတွင် ပေါ်လာပါမည်..."
+            )
+
+    transcript_btn.click(
+        fn=generate_transcript,
+        inputs=[api_key_input, audio_input, lang_dropdown, style_dropdown],
+        outputs=transcript_output
+    )
+    
+    summarize_btn.click(
+        fn=summarize_note,
+        inputs=[api_key_input, transcript_output, lang_dropdown],
+        outputs=summary_output
+    )
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 7860))
+    print("=" * 70)
+    print(f"Starting Meeting Minutes by Pyae Sone Oo on port {port}...")
+    print("=" * 70)
+    
+    demo.launch(
+        server_name="0.0.0.0", 
+        server_port=port, 
+        share=False
+    )
