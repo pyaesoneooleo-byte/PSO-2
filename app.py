@@ -36,6 +36,8 @@ def generate_transcript(api_key, audio_path, language, style):
                 file=(os.path.basename(audio_path), file.read()),
                 model="whisper-large-v3",
                 language=selected_lang_code,
+                prompt="မြန်မာဘာသာစကားဖြင့် ပြောဆိုထားသော အစည်းအဝေး မှတ်တမ်း ဖြစ်ပါသည်။" if language == "Myanmar" else "",
+                temperature=0.0,
                 response_format="text"
             )
         
