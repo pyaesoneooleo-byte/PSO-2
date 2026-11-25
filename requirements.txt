@@ -1,2 +1,2 @@
 gradio
-groq
+google-genai
